@@ -17,10 +17,11 @@ const (
 
 func main() {
 	var (
-		forwardedURL       string
-		requestBodyFind    string
-		requestBodyReplace string
-		port               string
+		forwardedURL         string
+		requestBodyFind      string
+		requestBodyReplace   string
+		processRequestBodies bool
+		port                 string
 	)
 
 	if port = os.Getenv("PORT"); len(port) == 0 {
@@ -39,12 +40,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	processRequestBodies = true
+	if requestBodyFind = os.Getenv("REQUEST_BODY_FIND"); len(requestBodyFind) == 0 {
+		processRequestBodies = false
+	}
+	if requestBodyReplace = os.Getenv("REQUEST_BODY_REPLACE"); len(requestBodyReplace) == 0 && processRequestBodies {
+		log.Fatal("REQUEST_BODY_REPLACE is required if REQUEST_BODY_FIND is set")
+		os.Exit(1)
+	}
+
 	director := func(req *http.Request) {
 		req.URL = url
 		req.Host = url.Host
 
 		// Read the content
 		if req.Body == nil {
+			return
+		}
+
+		if !processRequestBodies {
 			return
 		}
 

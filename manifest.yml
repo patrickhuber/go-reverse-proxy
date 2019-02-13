@@ -1,0 +1,11 @@
+---
+applications:
+- name: go-reverse-proxy
+  buildpack: go_buildpack
+  env:
+    GOVERSION: 1.x
+    GOPACKAGENAME: github.com/patrickhuber/go-reverse-proxy
+    FORWARDED_URL: https://www.google.com
+    REQUEST_BODY_FIND: www[.]google[.]com
+    REQUEST_BODY_REPLACE: www.example.com
+    
