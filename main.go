@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 )
 
 const (
@@ -89,6 +90,7 @@ func main() {
 
 		// Restore the io.ReadCloser to its original state
 		req.ContentLength = int64(len(bodyBytes))
+		req.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 		req.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
 		fmt.Printf("done filtering request body")
 		fmt.Println()
