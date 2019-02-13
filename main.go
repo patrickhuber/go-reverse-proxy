@@ -27,6 +27,7 @@ func main() {
 	if port = os.Getenv("PORT"); len(port) == 0 {
 		port = DefaultPort
 	}
+	log.Printf("PORT=%s", port)
 
 	if forwardedURL = os.Getenv("FORWARDED_URL"); len(forwardedURL) == 0 {
 		log.Fatal("missing required FORWARDED_URL environment variable")
@@ -39,15 +40,19 @@ func main() {
 		log.Fatal(err)
 		os.Exit(1)
 	}
+	log.Printf("FORWARDED_URL=%s", forwardedURL)
 
 	processRequestBodies = true
 	if requestBodyFind = os.Getenv("REQUEST_BODY_FIND"); len(requestBodyFind) == 0 {
 		processRequestBodies = false
 	}
+	log.Printf("REQUEST_BODY_FIND=%s", requestBodyFind)
+
 	if requestBodyReplace = os.Getenv("REQUEST_BODY_REPLACE"); len(requestBodyReplace) == 0 && processRequestBodies {
 		log.Fatal("REQUEST_BODY_REPLACE is required if REQUEST_BODY_FIND is set")
 		os.Exit(1)
 	}
+	log.Printf("REQUEST_BODY_REPLACE=%s", requestBodyReplace)
 
 	director := func(req *http.Request) {
 		req.URL = url
@@ -55,12 +60,16 @@ func main() {
 
 		// Read the content
 		if req.Body == nil {
+			log.Printf("skipping body request filtering")
 			return
 		}
 
 		if !processRequestBodies {
+			log.Printf("skipping body request filtering")
 			return
 		}
+
+		log.Printf("filtering request body")
 
 		bodyBytes, _ := ioutil.ReadAll(req.Body)
 
@@ -71,7 +80,9 @@ func main() {
 		bodyBytes = []byte(bodyString)
 
 		// Restore the io.ReadCloser to its original state
+		req.ContentLength = int64(len(bodyBytes))
 		req.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
+		log.Printf("done filtering request body")
 	}
 
 	proxy := &httputil.ReverseProxy{Director: director}
