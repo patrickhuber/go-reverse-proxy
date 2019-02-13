@@ -66,6 +66,8 @@ func main() {
 		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 		req.Host = url.Host
 
+		fmt.Printf("forwarding to %v", req.URL)
+
 		// Read the content
 		if req.Body == nil {
 			fmt.Printf("skipping body request filtering")
