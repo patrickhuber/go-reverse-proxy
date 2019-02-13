@@ -61,7 +61,9 @@ func main() {
 	fmt.Println()
 
 	director := func(req *http.Request) {
-		req.URL = url
+		req.URL.Host = url.Host
+		req.URL.Scheme = url.Scheme
+		req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 		req.Host = url.Host
 
 		// Read the content
