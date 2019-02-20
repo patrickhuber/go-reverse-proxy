@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/patrickhuber/go-reverse-proxy/middleware"
+	"github.com/patrickhuber/go-reverse-proxy/proxies"
 
 	"github.com/gorilla/mux"
 
@@ -62,7 +62,7 @@ var _ = Describe("ReverseProxy", func() {
 			backendURL, err := url.Parse(backend.URL)
 			Expect(err).To(BeNil())
 
-			reverseProxy := middleware.NewReverseProxyBuilder().
+			reverseProxy := proxies.NewReverseProxyBuilder().
 				RewriteHost(backendURL, "/").
 				RewriteRequestBody(backendURL, "/").
 				RewriteRedirect(backendURL, "/").
@@ -141,7 +141,7 @@ var _ = Describe("ReverseProxy", func() {
 			Expect(err).To(BeNil())
 
 			backendURL.Path = backSidePath
-			reverseProxy := middleware.NewReverseProxyBuilder().
+			reverseProxy := proxies.NewReverseProxyBuilder().
 				RewriteHost(backendURL, frontSidePath).
 				ToReverseProxy(&http.Transport{})
 
