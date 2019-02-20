@@ -9,7 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/patrickhuber/go-reverse-proxy/middleware"
+	"github.com/patrickhuber/go-reverse-proxy/proxies"
+
 	"github.com/urfave/cli"
 )
 
@@ -30,7 +31,7 @@ func main() {
 				EnvVar: "FORWARDED_URL",
 			},
 			cli.StringFlag{
-				Name:   "path-prefix, p",
+				Name:   "path-prefix, x",
 				EnvVar: "PATH_PREFIX",
 			},
 			cli.BoolFlag{
@@ -52,7 +53,7 @@ func main() {
 				return err
 			}
 
-			reverseProxy := middleware.NewReverseProxyBuilder().
+			reverseProxy := proxies.NewReverseProxyBuilder().
 				RewriteHost(url, "/").
 				RewriteRequestBody(url, "/").
 				RewriteRedirect(url, "/").
