@@ -6,6 +6,8 @@ applications:
     GOVERSION: 1.x
     GOPACKAGENAME: github.com/patrickhuber/go-reverse-proxy
     FORWARDED_URL: https://www.google.com
-    REQUEST_BODY_FIND: www[.]google[.]com
-    REQUEST_BODY_REPLACE: www.example.com
+    PATH_PREEFIX: /
+    SKIP_SSL_VALIDATION: false
+    X_FORWARDED_HOST_HEADER: X-Original-Host
+    X_FORWARDED_PATH_HEADER: X-Original-Path
     

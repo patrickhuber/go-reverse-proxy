@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/patrickhuber/go-reverse-proxy/proxies"
 
@@ -36,9 +39,6 @@ var _ = Describe("ReverseProxy", func() {
 					fmt.Fprintln(w)
 				}
 			})
-			router.HandleFunc("/cookies", func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusOK)
-			})
 			router.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
 				redirectURL := fmt.Sprintf("http://%s/ok", r.Host)
 				http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
@@ -63,6 +63,8 @@ var _ = Describe("ReverseProxy", func() {
 			Expect(err).To(BeNil())
 
 			reverseProxy := proxies.NewReverseProxyBuilder().
+				CopyRequestHeader("X-Original-Host", "X-Forwarded-Host").
+				CopyRequestHeader("X-Original-Path", "X-Forwarded-Path").
 				RewriteHost(backendURL, "/").
 				RewriteRequestBody(backendURL, "/").
 				RewriteRedirect(backendURL, "/").
@@ -121,6 +123,54 @@ var _ = Describe("ReverseProxy", func() {
 			Expect(err).To(BeNil())
 			Expect(string(body)).To(Equal(frontend.URL + "/info"))
 		})
+
+		It("can copy x forwarded host header from other header", func() {
+
+			client := &http.Client{}
+			req, err := http.NewRequest("GET", frontend.URL+"/headers", nil)
+			Expect(err).To(BeNil())
+
+			req.Header.Set("X-Original-Host", "www.example.com")
+			res, err := client.Do(req)
+			Expect(err).To(BeNil())
+			Expect(res.Body).ToNot(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusOK))
+
+			bodyBytes, err := ioutil.ReadAll(res.Body)
+			Expect(err).To(BeNil())
+
+			bodyString := string(bodyBytes)
+			fmt.Println()
+			fmt.Println(bodyString)
+			regex, err := regexp.Compile("(?i)x-forwarded-host\\s*=\\s*\\[([^]]+)\\]")
+			Expect(err).To(BeNil())
+
+			Expect(regex.MatchString(bodyString)).To(BeTrue())
+		})
+
+		It("can copy x forwarded path header from other header", func() {
+			client := &http.Client{}
+			req, err := http.NewRequest("GET", frontend.URL+"/ok", nil)
+			Expect(err).To(BeNil())
+
+			req.Header.Set("X-Original-Path", "/headers")
+			res, err := client.Do(req)
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusOK))
+			Expect(res.Body).ToNot(BeNil())
+
+			bodyBytes, err := ioutil.ReadAll(res.Body)
+			Expect(err).To(BeNil())
+
+			bodyString := string(bodyBytes)
+
+			fmt.Println()
+			fmt.Println(bodyString)
+			regex, err := regexp.Compile("(?i)x-forwarded-path\\s*=\\s*\\[([^]]+)\\]")
+			Expect(err).To(BeNil())
+
+			Expect(regex.MatchString(bodyString)).To(BeTrue())
+		})
 	})
 	Context("new path", func() {
 		var (
@@ -163,6 +213,69 @@ var _ = Describe("ReverseProxy", func() {
 		It("can rewrite source to different subpath than taget", func() {
 			frontSidePath = "/one"
 			backSidePath = "/two"
+		})
+	})
+	Context("cookies", func() {
+		var (
+			frontSidePath string
+			backSidePath  string
+			backend       *httptest.Server
+			frontend      *httptest.Server
+		)
+		It("can rewrite response cookie path when server drops cookie at root", func() {
+
+			frontSidePath = "/test"
+			backSidePath = ""
+		})
+		AfterEach(func() {
+			router := mux.NewRouter()
+			router.HandleFunc(backSidePath+"/set-cookies", func(w http.ResponseWriter, r *http.Request) {
+				expire := time.Now().AddDate(0, 0, 1)
+				cookie := http.Cookie{
+					Name:    "cookie",
+					Value:   "value",
+					Expires: expire,
+				}
+				http.SetCookie(w, &cookie)
+				w.WriteHeader(http.StatusOK)
+			})
+			router.HandleFunc(backSidePath+"/cookies", func(w http.ResponseWriter, r *http.Request) {
+				for _, c := range r.Cookies() {
+					fmt.Fprintf(w, "%v", c)
+					fmt.Fprintln(w)
+				}
+			})
+
+			backend = httptest.NewServer(router)
+			defer backend.Close()
+
+			backendURL, err := url.Parse(backend.URL)
+			Expect(err).To(BeNil())
+
+			backendURL.Path = backSidePath
+			reverseProxy := proxies.NewReverseProxyBuilder().
+				RewriteHost(backendURL, frontSidePath).
+				RewriteRequestCookies(backendURL, frontSidePath).
+				RewriteResponseCookies(backendURL, frontSidePath).
+				ToReverseProxy(&http.Transport{})
+
+			frontend = httptest.NewServer(reverseProxy)
+			defer frontend.Close()
+
+			cookieJar, err := cookiejar.New(nil)
+			Expect(err).To(BeNil())
+
+			client := &http.Client{
+				Jar: cookieJar,
+			}
+
+			resp, err := client.Get(frontend.URL + "/set-cookies")
+			Expect(err).To(BeNil())
+
+			Expect(len(resp.Cookies())).To(Equal(1))
+
+			cookie := resp.Cookies()[0]
+			Expect(cookie.Path).To(Equal(frontSidePath))
 		})
 	})
 })

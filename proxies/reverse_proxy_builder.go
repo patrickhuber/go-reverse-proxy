@@ -11,7 +11,20 @@ import (
 	"strings"
 )
 
+// RequestRewriter provides an interface for rewriting http requests
+type RequestRewriter interface {
+	Rewrite(request *http.Request)
+}
+
+// ResponseRewriter provides an interface for rewriting http responses
+type ResponseRewriter interface {
+	Rewrite(response *http.Response)
+}
+
+// RequestRewrite defines a function interface for rewriting requests
 type RequestRewrite func(request *http.Request)
+
+// ResponseRewrite defines a function interface for rewriting responses
 type ResponseRewrite func(response *http.Response)
 
 type reverseProxyBuilder struct {
@@ -20,8 +33,10 @@ type reverseProxyBuilder struct {
 	sourcePathPrefix string
 }
 
+// RequestCondition provides a function interface for checking http request condition
 type RequestCondition func(r *http.Request) bool
 
+// ResponseCondition provides a function interface for checking http response condition
 type ResponseCondition func(r *http.Response) bool
 
 func allRequests(r *http.Request) bool {
@@ -32,6 +47,7 @@ func allResponses(r *http.Response) bool {
 	return true
 }
 
+// ReverseProxyBuilder provides a builder interface for creating a reverse proxy
 type ReverseProxyBuilder interface {
 	ToReverseProxy(transport http.RoundTripper) *httputil.ReverseProxy
 	RequestRewrite(rewrite RequestRewrite) ReverseProxyBuilder
@@ -39,10 +55,14 @@ type ReverseProxyBuilder interface {
 	RewriteRedirect(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder
 	RewriteRequestBody(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder
 	RewriteResponseBody(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder
+	RewriteRequestCookies(forwardeURL *url.URL, pathPrefix string) ReverseProxyBuilder
+	RewriteResponseCookies(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder
 	AddRequestHeader(name string, value string) ReverseProxyBuilder
 	AddRequestHeaderIf(name string, value string, condition RequestCondition) ReverseProxyBuilder
 	SetRequestHeader(name string, value string) ReverseProxyBuilder
 	SetRequestHeaderIf(name string, value string, condition RequestCondition) ReverseProxyBuilder
+	CopyRequestHeader(source string, destination string) ReverseProxyBuilder
+	CopyRequestHeaderIf(source string, destination string, condition RequestCondition) ReverseProxyBuilder
 	DeleteRequestHeader(name string, value string) ReverseProxyBuilder
 	DeleteRequestHeaderIf(name string, condition RequestCondition) ReverseProxyBuilder
 	ReplaceRequestHeader(name string, match string, replace string) ReverseProxyBuilder
@@ -74,32 +94,27 @@ func (builder *reverseProxyBuilder) ToReverseProxy(transport http.RoundTripper) 
 	return reverseProxy
 }
 
-func (builder *reverseProxyBuilder) RequestRewrite(rewrite RequestRewrite) ReverseProxyBuilder {
-	builder.requestRewrites = append(builder.requestRewrites, rewrite)
-	return builder
-}
-
 func (builder *reverseProxyBuilder) RewriteHost(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder {
 	targetQuery := forwardedURL.RawQuery
 	return builder.RequestRewrite(func(r *http.Request) {
 
-		originalHost := r.Header.Get("X-Forwarded-Host")
+		originalHost := r.Header.Get(HeaderXForwardedHost)
 		if strings.TrimSpace(originalHost) == "" {
 			originalHost = r.Host
-			r.Header.Set("X-Forwarded-Host", originalHost)
+			r.Header.Set(HeaderXForwardedHost, originalHost)
 		}
 
-		originalPath := r.Header.Get("X-Forwarded-Path")
+		originalPath := r.Header.Get(HeaderXForwardedPath)
 		if strings.TrimSpace(originalPath) == "" {
 			originalPath = r.URL.Path
-			r.Header.Set("X-Forwarded-Path", originalPath)
+			r.Header.Set(HeaderXForwardedPath, originalPath)
 		}
 
-		originalProtocol := r.Header.Get("X-Forwarded-Proto")
+		originalProtocol := r.Header.Get(HeaderXForwardedProto)
 		if strings.TrimSpace(originalProtocol) == "" {
 			originalProtocol = r.URL.Scheme
 			if strings.TrimSpace(originalProtocol) != "" {
-				r.Header.Set("X-Forwarded-Proto", originalProtocol)
+				r.Header.Set(HeaderXForwardedProto, originalProtocol)
 			}
 		}
 
@@ -134,7 +149,7 @@ func (builder *reverseProxyBuilder) RewriteRedirect(forwardedURL *url.URL, pathP
 	return builder.ResponseRewrite(func(response *http.Response) {
 
 		// check the response header 'location', if missing bail
-		location := response.Header.Get("Location")
+		location := response.Header.Get(HeaderLocation)
 		if strings.TrimSpace(location) == "" {
 			return
 		}
@@ -144,12 +159,12 @@ func (builder *reverseProxyBuilder) RewriteRedirect(forwardedURL *url.URL, pathP
 		target, _ := url.Parse(location)
 
 		// get the original protocol, host and path from the headers
-		target.Host = request.Header.Get("X-Forwarded-Host")
+		target.Host = request.Header.Get(HeaderXForwardedHost)
 		if strings.TrimSpace(target.Host) == "" {
 			target.Host = request.Host
 		}
 
-		target.Scheme = request.Header.Get("X-Forwarded-Proto")
+		target.Scheme = request.Header.Get(HeaderXForwardedProto)
 		if strings.TrimSpace(target.Scheme) == "" {
 			target.Scheme = request.URL.Scheme
 		}
@@ -160,7 +175,7 @@ func (builder *reverseProxyBuilder) RewriteRedirect(forwardedURL *url.URL, pathP
 			target.Path = strings.TrimPrefix(target.Path, forwardedURL.Path)
 		}
 
-		response.Header.Set("Location", target.String())
+		response.Header.Set(HeaderLocation, target.String())
 	})
 }
 func (builder *reverseProxyBuilder) RewriteRequestBody(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder {
@@ -173,12 +188,12 @@ func (builder *reverseProxyBuilder) RewriteRequestBody(forwardedURL *url.URL, pa
 
 		source, _ := url.Parse(request.RequestURI)
 
-		originalHost := request.Header.Get("X-Forwarded-Host")
+		originalHost := request.Header.Get(HeaderXForwardedHost)
 		if strings.TrimSpace(originalHost) != "" {
 			source.Host = originalHost
 		}
 
-		originalScheme := request.Header.Get("X-Forwarded-Proto")
+		originalScheme := request.Header.Get(HeaderXForwardedProto)
 		if strings.TrimSpace(originalScheme) != "" {
 			source.Scheme = originalScheme
 		}
@@ -208,11 +223,11 @@ func (builder *reverseProxyBuilder) RewriteResponseBody(forwardedURL *url.URL, p
 		request := response.Request
 
 		source, _ := url.Parse(request.RequestURI)
-		originalHost := request.Header.Get("X-Forwarded-Host")
+		originalHost := request.Header.Get(HeaderXForwardedHost)
 		if strings.TrimSpace(originalHost) != "" {
 			source.Host = originalHost
 		}
-		originalScheme := request.Header.Get("X-Forwarded-Proto")
+		originalScheme := request.Header.Get(HeaderXForwardedProto)
 		if strings.TrimSpace(originalScheme) != "" {
 			source.Scheme = originalScheme
 		} else {
@@ -226,6 +241,46 @@ func (builder *reverseProxyBuilder) RewriteResponseBody(forwardedURL *url.URL, p
 		response.ContentLength = int64(len(bodyBytes))
 		response.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 	})
+}
+
+func (builder *reverseProxyBuilder) RewriteRequestCookies(forwardeURL *url.URL, pathPrefix string) ReverseProxyBuilder {
+	return builder
+}
+
+func (builder *reverseProxyBuilder) RewriteResponseCookies(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder {
+	builder.ResponseRewrite(func(response *http.Response) {
+		cookies := []*http.Cookie{}
+		for _, c := range response.Cookies() {
+
+			cookies = append(cookies, c)
+
+			if !strings.HasPrefix(c.Path, forwardedURL.Path) {
+				continue
+			}
+
+			// remove the path prefix of the backend
+			c.Path = strings.TrimPrefix(c.Path, forwardedURL.Path)
+
+			// add the path prefix of the front end
+			c.Path = singleJoiningSlash(c.Path, pathPrefix)
+		}
+
+		// remove all cookies, we will add them back one at a time
+		response.Header.Del("Set-Cookie")
+
+		// add the cookies back by serializing them to strings
+		for _, cookie := range cookies {
+			if v := cookie.String(); v != "" {
+				response.Header.Add("Set-Cookie", v)
+			}
+		}
+	})
+	return builder
+}
+
+func (builder *reverseProxyBuilder) RequestRewrite(rewrite RequestRewrite) ReverseProxyBuilder {
+	builder.requestRewrites = append(builder.requestRewrites, rewrite)
+	return builder
 }
 
 func (builder *reverseProxyBuilder) AddRequestHeader(name string, value string) ReverseProxyBuilder {
@@ -249,6 +304,20 @@ func (builder *reverseProxyBuilder) SetRequestHeaderIf(name string, value string
 		if condition(request) {
 			request.Header.Set(name, value)
 		}
+	})
+}
+
+func (builder *reverseProxyBuilder) CopyRequestHeader(source string, destination string) ReverseProxyBuilder {
+	return builder.CopyRequestHeaderIf(source, destination, allRequests)
+}
+
+func (builder *reverseProxyBuilder) CopyRequestHeaderIf(source string, destination string, condition RequestCondition) ReverseProxyBuilder {
+	return builder.RequestRewrite(func(request *http.Request) {
+		if !condition(request) {
+			return
+		}
+		value := request.Header.Get(source)
+		request.Header.Set(destination, value)
 	})
 }
 

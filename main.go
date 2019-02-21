@@ -38,11 +38,22 @@ func main() {
 				Name:   "skip-ssl-validation, k",
 				EnvVar: "SKIP_SSL_VALIDATION",
 			},
+			cli.StringFlag{
+				Name:   "x-forwarded-host-header",
+				EnvVar: "X_FORWARDED_HOST_HEADER",
+			},
+			cli.StringFlag{
+				Name:   "x-forwarded-path-header",
+				EnvVar: "X_FORWARDED_PATH_HEADER",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			port := c.String("port")
 			forwardedURL := c.String("forwarded-url")
 			skipTLSValidation := c.Bool("skip-ssl-validation")
+			xForwardedHostHeader := c.String("x-forwarded-host-header")
+			xForwardedPathHeader := c.String("x-forwarded-path-header")
+			pathPrefix := c.String("path-prefix")
 
 			if strings.TrimSpace(forwardedURL) == "" {
 				return fmt.Errorf("forwarded-url argument is required")
@@ -54,10 +65,17 @@ func main() {
 			}
 
 			reverseProxy := proxies.NewReverseProxyBuilder().
-				RewriteHost(url, "/").
-				RewriteRequestBody(url, "/").
-				RewriteRedirect(url, "/").
-				RewriteResponseBody(url, "/").
+				RewriteHost(url, pathPrefix).
+				CopyRequestHeaderIf(xForwardedHostHeader, "X-Forwarded-Host", func(r *http.Request) bool {
+					return strings.TrimSpace(xForwardedHostHeader) != ""
+				}).
+				CopyRequestHeaderIf(xForwardedPathHeader, "X-Forwarded-Path", func(r *http.Request) bool {
+					return strings.TrimSpace(xForwardedPathHeader) != ""
+				}).
+				RewriteRequestBody(url, pathPrefix).
+				RewriteRedirect(url, pathPrefix).
+				RewriteResponseBody(url, pathPrefix).
+				RewriteResponseCookies(url, pathPrefix).
 				ToReverseProxy(&http.Transport{
 					TLSClientConfig: &tls.Config{InsecureSkipVerify: skipTLSValidation},
 				})
