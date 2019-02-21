@@ -43,6 +43,31 @@ var _ = Describe("ReverseProxy", func() {
 				redirectURL := fmt.Sprintf("http://%s/ok", r.Host)
 				http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 			})
+			router.HandleFunc("/redirect-encoded", func(w http.ResponseWriter, r *http.Request) {
+				queryStringRedirectURL := &url.URL{
+					Host:   r.Host,
+					Scheme: r.URL.Scheme,
+					Path:   "ok",
+				}
+				if strings.TrimSpace(queryStringRedirectURL.Scheme) == "" {
+					queryStringRedirectURL.Scheme = "http"
+				}
+				redirectURIEncoded := url.QueryEscape(queryStringRedirectURL.String())
+				redirectURL := fmt.Sprintf("http://%s/ok?redirect_uri=%s", r.Host, redirectURIEncoded)
+				http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+			})
+			router.HandleFunc("/redirect-decoded", func(w http.ResponseWriter, r *http.Request) {
+				queryStringRedirectURL := &url.URL{
+					Host:   r.Host,
+					Scheme: r.URL.Scheme,
+					Path:   "ok",
+				}
+				if strings.TrimSpace(queryStringRedirectURL.Scheme) == "" {
+					queryStringRedirectURL.Scheme = "http"
+				}
+				redirectURL := fmt.Sprintf("http://%s/ok?redirect_uri=%s", r.Host, queryStringRedirectURL.String())
+				http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+			})
 			router.HandleFunc("/is-match", func(w http.ResponseWriter, r *http.Request) {
 				bodyBytes, _ := ioutil.ReadAll(r.Body)
 				bodyString := string(bodyBytes)
@@ -107,6 +132,40 @@ var _ = Describe("ReverseProxy", func() {
 			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
 			Expect(res.Header.Get("Location")).To(Equal(frontend.URL + "/ok"))
 		})
+
+		It("can rewrite response location header unencoded query string url", func() {
+			client := &http.Client{
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			}
+			res, err := client.Get(frontend.URL + "/redirect-decoded")
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+
+			expected := frontend.URL + fmt.Sprintf("/ok?redirect_uri=%s/ok", frontend.URL)
+			actual := res.Header.Get("Location")
+			Expect(actual).To(Equal(expected))
+		})
+
+		It("can rewrite response location header encoded query string url", func() {
+			client := &http.Client{
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			}
+			res, err := client.Get(frontend.URL + "/redirect-encoded")
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+			actual := res.Header.Get("Location")
+			expected := frontend.URL + fmt.Sprintf("/ok?redirect_uri=%s", url.QueryEscape(frontend.URL+"/ok"))
+			fmt.Println()
+			fmt.Println(actual)
+			fmt.Println(expected)
+			fmt.Println()
+			Expect(actual).To(Equal(expected))
+		})
+
 		It("can rewrite request body", func() {
 			body := fmt.Sprintf("%s", frontend.URL+"/is-match")
 			res, err := http.Post(frontend.URL+"/is-match", "text/plain", bytes.NewBufferString(body))
@@ -140,8 +199,6 @@ var _ = Describe("ReverseProxy", func() {
 			Expect(err).To(BeNil())
 
 			bodyString := string(bodyBytes)
-			fmt.Println()
-			fmt.Println(bodyString)
 			regex, err := regexp.Compile("(?i)x-forwarded-host\\s*=\\s*\\[([^]]+)\\]")
 			Expect(err).To(BeNil())
 
@@ -164,8 +221,6 @@ var _ = Describe("ReverseProxy", func() {
 
 			bodyString := string(bodyBytes)
 
-			fmt.Println()
-			fmt.Println(bodyString)
 			regex, err := regexp.Compile("(?i)x-forwarded-path\\s*=\\s*\\[([^]]+)\\]")
 			Expect(err).To(BeNil())
 

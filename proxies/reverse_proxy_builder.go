@@ -175,6 +175,21 @@ func (builder *reverseProxyBuilder) RewriteRedirect(forwardedURL *url.URL, pathP
 			target.Path = strings.TrimPrefix(target.Path, forwardedURL.Path)
 		}
 
+		queryURL := &url.URL{
+			Path:   pathPrefix,
+			Scheme: target.Scheme,
+			Host:   target.Host,
+		}
+
+		forwardedURLString := strings.TrimSuffix(forwardedURL.String(), "/")
+		queryURLString := strings.TrimSuffix(queryURL.String(), "/")
+
+		forwardedURLStringEncoded := url.QueryEscape(forwardedURLString)
+		queryURLStringEncoded := url.QueryEscape(queryURLString)
+
+		target.RawQuery = strings.Replace(target.RawQuery, forwardedURLString, queryURLString, -1)
+		target.RawQuery = strings.Replace(target.RawQuery, forwardedURLStringEncoded, queryURLStringEncoded, -1)
+
 		response.Header.Set(HeaderLocation, target.String())
 	})
 }
