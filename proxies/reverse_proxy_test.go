@@ -244,6 +244,7 @@ var _ = Describe("ReverseProxy", func() {
 					fmt.Fprintf(w, "%v", c)
 					fmt.Fprintln(w)
 				}
+				w.WriteHeader(http.StatusOK)
 			})
 
 			backend = httptest.NewServer(router)
@@ -269,13 +270,23 @@ var _ = Describe("ReverseProxy", func() {
 				Jar: cookieJar,
 			}
 
-			resp, err := client.Get(frontend.URL + "/set-cookies")
+			resp, err := client.Get(frontend.URL + "/test/set-cookies")
 			Expect(err).To(BeNil())
 
 			Expect(len(resp.Cookies())).To(Equal(1))
 
 			cookie := resp.Cookies()[0]
 			Expect(cookie.Path).To(Equal(frontSidePath))
+
+			resp, err = client.Get(frontend.URL + "/test/cookies")
+			Expect(err).To(BeNil())
+			Expect(resp.Body).ToNot(BeNil())
+
+			bodyBytes, err := ioutil.ReadAll(resp.Body)
+			Expect(err).To(BeNil())
+
+			bodyString := string(bodyBytes)
+			Expect(bodyString).To(ContainSubstring("value"))
 		})
 	})
 })

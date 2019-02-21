@@ -244,7 +244,30 @@ func (builder *reverseProxyBuilder) RewriteResponseBody(forwardedURL *url.URL, p
 }
 
 func (builder *reverseProxyBuilder) RewriteRequestCookies(forwardeURL *url.URL, pathPrefix string) ReverseProxyBuilder {
-	return builder
+	return builder.RequestRewrite(func(request *http.Request) {
+		cookies := []*http.Cookie{}
+		for _, c := range request.Cookies() {
+			cookies = append(cookies, c)
+
+			if !strings.HasPrefix(c.Path, pathPrefix) {
+				continue
+			}
+
+			// remove the path prefix of the frontend
+			c.Path = strings.TrimPrefix(c.Path, pathPrefix)
+
+			// add the path prefix of the back end
+			c.Path = singleJoiningSlash(c.Path, forwardeURL.Path)
+		}
+
+		// remove all cookies
+		request.Header.Del("Cookie")
+
+		// add the modified cookies back
+		for _, c := range cookies {
+			request.AddCookie(c)
+		}
+	})
 }
 
 func (builder *reverseProxyBuilder) RewriteResponseCookies(forwardedURL *url.URL, pathPrefix string) ReverseProxyBuilder {
