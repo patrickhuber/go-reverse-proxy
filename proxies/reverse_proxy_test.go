@@ -270,7 +270,7 @@ var _ = Describe("ReverseProxy", func() {
 				Jar: cookieJar,
 			}
 
-			resp, err := client.Get(frontend.URL + "/test/set-cookies")
+			resp, err := client.Get(frontend.URL + frontSidePath + "/set-cookies")
 			Expect(err).To(BeNil())
 
 			Expect(len(resp.Cookies())).To(Equal(1))
@@ -278,7 +278,7 @@ var _ = Describe("ReverseProxy", func() {
 			cookie := resp.Cookies()[0]
 			Expect(cookie.Path).To(Equal(frontSidePath))
 
-			resp, err = client.Get(frontend.URL + "/test/cookies")
+			resp, err = client.Get(frontend.URL + frontSidePath + "/cookies")
 			Expect(err).To(BeNil())
 			Expect(resp.Body).ToNot(BeNil())
 
