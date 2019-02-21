@@ -72,6 +72,7 @@ func main() {
 				CopyRequestHeaderIf(xForwardedPathHeader, "X-Forwarded-Path", func(r *http.Request) bool {
 					return strings.TrimSpace(xForwardedPathHeader) != ""
 				}).
+				RewriteRequestCookies(url, pathPrefix).
 				RewriteRequestBody(url, pathPrefix).
 				RewriteRedirect(url, pathPrefix).
 				RewriteResponseBody(url, pathPrefix).
