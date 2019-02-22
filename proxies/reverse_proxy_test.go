@@ -17,11 +17,111 @@ import (
 	"github.com/gorilla/mux"
 
 	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("ReverseProxy", func() {
+	type PathUnion struct {
+		Front string
+		Back  string
+	}
+	DescribeTable("redirects",
+		func(paths *PathUnion) {
+			fmt.Println()
+			fmt.Printf("front path: '%s', back path: '%s'", paths.Front, paths.Back)
+			fmt.Println()
+			router := mux.NewRouter()
+			router.HandleFunc(paths.Back+"/ok", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			router.HandleFunc(paths.Back+"/redirect", func(w http.ResponseWriter, r *http.Request) {
+				redirectURL := &url.URL{
+					Host:   r.Host,
+					Path:   paths.Back + "/ok",
+					Scheme: "http",
+				}
+				http.Redirect(w, r, redirectURL.String(), http.StatusTemporaryRedirect)
+			})
+			router.HandleFunc(paths.Back+"/redirect/query/decoded", func(w http.ResponseWriter, r *http.Request) {
+				queryStringURL := &url.URL{
+					Host:   r.Host,
+					Path:   paths.Back + "/ok",
+					Scheme: "http",
+				}
+				redirectURL := &url.URL{
+					Host:     "www.google.com",
+					Scheme:   "http",
+					RawQuery: fmt.Sprintf("q=%s", queryStringURL.String()),
+				}
 
+				http.Redirect(w, r, redirectURL.String(), http.StatusTemporaryRedirect)
+			})
+			router.HandleFunc(paths.Back+"/redirect/query/encoded", func(w http.ResponseWriter, r *http.Request) {
+				queryStringURL := &url.URL{
+					Host:   r.Host,
+					Path:   paths.Back + "/ok",
+					Scheme: "http",
+				}
+				redirectURL := &url.URL{
+					Host:     "www.google.com",
+					Scheme:   "http",
+					RawQuery: fmt.Sprintf("q=%s", url.QueryEscape(queryStringURL.String())),
+				}
+
+				http.Redirect(w, r, redirectURL.String(), http.StatusTemporaryRedirect)
+			})
+
+			backend := httptest.NewServer(router)
+
+			backendURL, err := url.Parse(backend.URL)
+			backendURL.Path = paths.Back + "/" + backendURL.Path
+			Expect(err).To(BeNil())
+
+			reverseProxy := proxies.NewReverseProxyBuilder().
+				AddRequestHeader("X-Forwarded-Proto", "http").
+				RewriteHost(backendURL, paths.Front).
+				RewriteRedirect(backendURL, paths.Front).
+				ToReverseProxy(&http.Transport{})
+
+			frontend := httptest.NewServer(reverseProxy)
+			client := &http.Client{
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			}
+
+			// sanity check to call the ok endpoint
+			res, err := http.Get(frontend.URL + paths.Front + "/ok")
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusOK))
+
+			// just a standard redirect, make sure the core URL is rewritten
+			res, err = client.Get(frontend.URL + paths.Front + "/redirect")
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+			Expect(res.Header.Get("Location")).To(Equal(frontend.URL + paths.Front + "/ok"))
+
+			// redirect with embedded URL in the query string URL decoded
+			res, err = client.Get(frontend.URL + paths.Front + "/redirect/query/decoded")
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+			actual := res.Header.Get("Location")
+			expected := fmt.Sprintf("http://www.google.com?q=%s", frontend.URL+paths.Front+"/ok")
+			Expect(actual).To(Equal(expected))
+
+			// redirect with embedded URL in the query string URL encoded
+			res, err = client.Get(frontend.URL + paths.Front + "/redirect/query/encoded")
+			Expect(err).To(BeNil())
+			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
+			actual = res.Header.Get("Location")
+			expected = fmt.Sprintf("http://www.google.com?q=%s", url.QueryEscape(frontend.URL+paths.Front+"/ok"))
+			Expect(actual).To(Equal(expected))
+		},
+		Entry("no source path no target path", &PathUnion{Front: "", Back: ""}),
+		Entry("source path target no path", &PathUnion{Front: "/one", Back: ""}),
+		Entry("no source path target path", &PathUnion{Front: "", Back: "/two"}),
+		Entry("target and source have path", &PathUnion{Front: "/one", Back: "/two"}))
 	Context("passthrough", func() {
 		var (
 			backend  *httptest.Server
@@ -120,50 +220,6 @@ var _ = Describe("ReverseProxy", func() {
 			searchString = "X-Forwarded-Path=[/headers]"
 			Expect(strings.Contains(bodyString, searchString)).To(BeTrue(), "cannot find x-forwarded-path header in response")
 
-		})
-		It("can rewrite response location header", func() {
-			client := &http.Client{
-				CheckRedirect: func(req *http.Request, via []*http.Request) error {
-					return http.ErrUseLastResponse
-				},
-			}
-			res, err := client.Get(frontend.URL + "/redirect")
-			Expect(err).To(BeNil())
-			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
-			Expect(res.Header.Get("Location")).To(Equal(frontend.URL + "/ok"))
-		})
-
-		It("can rewrite response location header unencoded query string url", func() {
-			client := &http.Client{
-				CheckRedirect: func(req *http.Request, via []*http.Request) error {
-					return http.ErrUseLastResponse
-				},
-			}
-			res, err := client.Get(frontend.URL + "/redirect-decoded")
-			Expect(err).To(BeNil())
-			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
-
-			expected := frontend.URL + fmt.Sprintf("/ok?redirect_uri=%s/ok", frontend.URL)
-			actual := res.Header.Get("Location")
-			Expect(actual).To(Equal(expected))
-		})
-
-		It("can rewrite response location header encoded query string url", func() {
-			client := &http.Client{
-				CheckRedirect: func(req *http.Request, via []*http.Request) error {
-					return http.ErrUseLastResponse
-				},
-			}
-			res, err := client.Get(frontend.URL + "/redirect-encoded")
-			Expect(err).To(BeNil())
-			Expect(res.StatusCode).To(Equal(http.StatusTemporaryRedirect))
-			actual := res.Header.Get("Location")
-			expected := frontend.URL + fmt.Sprintf("/ok?redirect_uri=%s", url.QueryEscape(frontend.URL+"/ok"))
-			fmt.Println()
-			fmt.Println(actual)
-			fmt.Println(expected)
-			fmt.Println()
-			Expect(actual).To(Equal(expected))
 		})
 
 		It("can rewrite request body", func() {

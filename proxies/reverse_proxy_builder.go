@@ -134,7 +134,7 @@ func (builder *reverseProxyBuilder) RewriteHost(forwardedURL *url.URL, pathPrefi
 
 		// if the forwarded URL has a path, prepend the forwarded path to the current path
 		if strings.TrimSpace(forwardedURL.Path) != "" {
-			r.URL.Path = singleJoiningSlash(forwardedURL.Path, r.URL.Path)
+			r.URL.Path = SingleJoiningSlash(forwardedURL.Path, r.URL.Path)
 		}
 
 		if targetQuery == "" || r.URL.RawQuery == "" {
@@ -158,36 +158,39 @@ func (builder *reverseProxyBuilder) RewriteRedirect(forwardedURL *url.URL, pathP
 
 		target, _ := url.Parse(location)
 
-		// get the original protocol, host and path from the headers
-		target.Host = request.Header.Get(HeaderXForwardedHost)
-		if strings.TrimSpace(target.Host) == "" {
-			target.Host = request.Host
-		}
+		// the target matches the forwarded URL host, so replace it
+		if target.Host == forwardedURL.Host {
 
-		target.Scheme = request.Header.Get(HeaderXForwardedProto)
-		if strings.TrimSpace(target.Scheme) == "" {
-			target.Scheme = request.URL.Scheme
-		}
+			// rewrite the host
+			forwardedHost := request.Header.Get(HeaderXForwardedHost)
+			target.Host = forwardedHost
 
-		if strings.TrimSpace(pathPrefix) != "" && strings.TrimSpace(pathPrefix) != "/" {
-			target.Path = singleJoiningSlash(pathPrefix, target.Path)
-		} else if strings.HasPrefix(target.Path, forwardedURL.Path) {
+			// rewrite the scheme
+			target.Scheme = request.Header.Get(HeaderXForwardedProto)
+			if strings.TrimSpace(target.Scheme) == "" {
+				target.Scheme = request.URL.Scheme
+			}
+
+			// remove the forwardedURL prefix
+			// add the pathPrefix for the souce
 			target.Path = strings.TrimPrefix(target.Path, forwardedURL.Path)
+			target.Path = SingleJoiningSlash(pathPrefix, target.Path)
 		}
 
+		// process query string values
+		// replace the backend url with the frontend url (encoded and decoded)
 		queryURL := &url.URL{
 			Path:   pathPrefix,
-			Scheme: target.Scheme,
-			Host:   target.Host,
+			Scheme: request.Header.Get(HeaderXForwardedProto),
+			Host:   request.Header.Get(HeaderXForwardedHost),
 		}
 
 		forwardedURLString := strings.TrimSuffix(forwardedURL.String(), "/")
 		queryURLString := strings.TrimSuffix(queryURL.String(), "/")
+		target.RawQuery = strings.Replace(target.RawQuery, forwardedURLString, queryURLString, -1)
 
 		forwardedURLStringEncoded := url.QueryEscape(forwardedURLString)
 		queryURLStringEncoded := url.QueryEscape(queryURLString)
-
-		target.RawQuery = strings.Replace(target.RawQuery, forwardedURLString, queryURLString, -1)
 		target.RawQuery = strings.Replace(target.RawQuery, forwardedURLStringEncoded, queryURLStringEncoded, -1)
 
 		response.Header.Set(HeaderLocation, target.String())
@@ -213,7 +216,7 @@ func (builder *reverseProxyBuilder) RewriteRequestBody(forwardedURL *url.URL, pa
 			source.Scheme = originalScheme
 		}
 
-		source.Path = singleJoiningSlash(pathPrefix, source.Path)
+		source.Path = SingleJoiningSlash(pathPrefix, source.Path)
 
 		// rewrite any matching urls in the body with the forwarded URL
 		bodyString = strings.Replace(bodyString, source.String(), forwardedURL.String(), -1)
@@ -272,7 +275,7 @@ func (builder *reverseProxyBuilder) RewriteRequestCookies(forwardeURL *url.URL, 
 			c.Path = strings.TrimPrefix(c.Path, pathPrefix)
 
 			// add the path prefix of the back end
-			c.Path = singleJoiningSlash(c.Path, forwardeURL.Path)
+			c.Path = SingleJoiningSlash(c.Path, forwardeURL.Path)
 		}
 
 		// remove all cookies
@@ -300,7 +303,7 @@ func (builder *reverseProxyBuilder) RewriteResponseCookies(forwardedURL *url.URL
 			c.Path = strings.TrimPrefix(c.Path, forwardedURL.Path)
 
 			// add the path prefix of the front end
-			c.Path = singleJoiningSlash(c.Path, pathPrefix)
+			c.Path = SingleJoiningSlash(c.Path, pathPrefix)
 		}
 
 		// remove all cookies, we will add them back one at a time
